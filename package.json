@@ -16,5 +16,10 @@
     "dev:api": "pnpm --filter @synapse/api dev",
     "dev:worker": "pnpm --filter @synapse/worker dev",
     "dev:web": "pnpm --filter @synapse/web dev"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.2"
   }
 }
