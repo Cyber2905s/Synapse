@@ -5,3 +5,4 @@ export * from './backoff.ts';
 export * from './hmac.ts';
 export * from './quiet-hours.ts';
 export * from './catalog.ts';
+export * from './preferences.ts';
