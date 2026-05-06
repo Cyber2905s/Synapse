@@ -7,3 +7,4 @@ export * from './quiet-hours.ts';
 export * from './catalog.ts';
 export * from './preferences.ts';
 export * from './db.ts';
+export * from './redis.ts';
