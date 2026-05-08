@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Config, Db, Redis } from '@synapse/shared';
 import { healthRoutes } from './routes/health.ts';
+import { metricsRoutes } from './routes/metrics.ts';
 
 export interface Deps {
   config: Config;
@@ -34,6 +35,6 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       .send({ error: status >= 500 ? 'internal_error' : (err as Error).message });
   });
 
-  for (const route of [healthRoutes]) route(app, deps);
+  for (const route of [healthRoutes, metricsRoutes]) route(app, deps);
   return app;
 }
