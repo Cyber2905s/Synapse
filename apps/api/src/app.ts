@@ -6,6 +6,8 @@ import { metricsRoutes } from './routes/metrics.ts';
 import { eventRoutes } from './routes/events.ts';
 import { preferenceRoutes } from './routes/preferences.ts';
 import { notificationRoutes } from './routes/notifications.ts';
+import { wsRoutes } from './routes/ws.ts';
+import websocket from '@fastify/websocket';
 
 export interface Deps {
   config: Config;
@@ -38,6 +40,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       .send({ error: status >= 500 ? 'internal_error' : (err as Error).message });
   });
 
+  await app.register(websocket);
   for (const route of [
     healthRoutes,
     metricsRoutes,
