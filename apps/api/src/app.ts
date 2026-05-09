@@ -5,6 +5,7 @@ import { healthRoutes } from './routes/health.ts';
 import { metricsRoutes } from './routes/metrics.ts';
 import { eventRoutes } from './routes/events.ts';
 import { preferenceRoutes } from './routes/preferences.ts';
+import { notificationRoutes } from './routes/notifications.ts';
 
 export interface Deps {
   config: Config;
@@ -37,7 +38,13 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       .send({ error: status >= 500 ? 'internal_error' : (err as Error).message });
   });
 
-  for (const route of [healthRoutes, metricsRoutes, eventRoutes, preferenceRoutes])
+  for (const route of [
+    healthRoutes,
+    metricsRoutes,
+    eventRoutes,
+    preferenceRoutes,
+    notificationRoutes,
+  ])
     route(app, deps);
   return app;
 }
