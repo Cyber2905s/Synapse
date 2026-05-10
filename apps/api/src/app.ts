@@ -7,6 +7,7 @@ import { eventRoutes } from './routes/events.ts';
 import { preferenceRoutes } from './routes/preferences.ts';
 import { notificationRoutes } from './routes/notifications.ts';
 import { wsRoutes } from './routes/ws.ts';
+import { dlqRoutes } from './routes/dlq.ts';
 import websocket from '@fastify/websocket';
 
 export interface Deps {
@@ -47,6 +48,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     eventRoutes,
     preferenceRoutes,
     notificationRoutes,
+    wsRoutes,
+    dlqRoutes,
   ])
     route(app, deps);
   return app;
