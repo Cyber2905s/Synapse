@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS deliveries (
   body         text NOT NULL,
   attempts     int  NOT NULL DEFAULT 0,
   last_error   text,
+  -- Held by the worker currently attempting the send; guarantees one in-flight attempt per delivery.
+  lease_until  timestamptz,
   created_at   timestamptz NOT NULL DEFAULT now(),
   sent_at      timestamptz,
   delivered_at timestamptz,
