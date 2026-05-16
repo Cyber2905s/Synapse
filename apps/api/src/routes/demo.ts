@@ -9,7 +9,7 @@ const FAILING = 'synapse:demo:webhook-failing';
  * A stand-in "customer" webhook endpoint so the demo is self-contained: it verifies the HMAC
  * signature, records what arrived, and can be switched into failure mode to exercise retries/DLQ.
  */
-export const demoRoutes: Route = (app, { db, redis }) => {
+export const demoRoutes: Route = (app, { db, redis, config }) => {
   // Keep the raw body: signatures are computed over the exact bytes sent.
   app.register(async (scope) => {
     scope.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) =>
@@ -36,6 +36,7 @@ export const demoRoutes: Route = (app, { db, redis }) => {
   });
 
   app.get('/demo/webhook-sink', async () => ({
+    url: config.DEMO_WEBHOOK_URL,
     failing: (await redis.get(FAILING)) === '1',
     received: (await redis.lrange(SINK, 0, 49)).map((s) => JSON.parse(s)),
   }));

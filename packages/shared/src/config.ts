@@ -16,6 +16,8 @@ const schema = z.object({
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
   /** A pending stream entry idle this long is assumed orphaned by a dead worker and reclaimed. */
   CLAIM_IDLE_MS: z.coerce.number().int().min(100).default(30_000),
+  /** Where workers can reach the API's demo webhook receiver (differs inside docker). */
+  DEMO_WEBHOOK_URL: z.string().default('http://localhost:3000/demo/webhook-sink'),
   WEBHOOK_TIMEOUT_MS: z.coerce.number().int().min(100).default(5_000),
 });
 
