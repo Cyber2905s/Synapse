@@ -1,5 +1,19 @@
 name: synapse
 
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: postgres://synapse:synapse@postgres:5432/synapse
+  REDIS_URL: redis://redis:6379
+  SMTP_HOST: mailpit
+  SMTP_PORT: '1025'
+  DEMO_WEBHOOK_URL: http://api:3000/demo/webhook-sink
+  NODE_NO_WARNINGS: '1'
+
+x-app-deps: &app-deps
+  postgres: { condition: service_healthy }
+  redis: { condition: service_healthy }
+  mailpit: { condition: service_started }
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -30,6 +44,52 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     ports: ['8025:8025', '1025:1025']
+
+  api:
+    build: .
+    command: ['node', 'apps/api/src/index.ts']
+    environment: *app-env
+    depends_on: *app-deps
+    # Two replicas to exercise cross-instance WebSocket fan-out.
+    deploy: { replicas: 2 }
+    ports: ['3000-3001:3000']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/ready').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 15s
+
+  worker:
+    build: .
+    command: ['node', 'apps/worker/src/index.ts']
+    environment: *app-env
+    depends_on: *app-deps
+    deploy: { replicas: 2 }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:9100/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 30s
+
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    ports: ['8080:80']
+    depends_on:
+      api: { condition: service_healthy }
 
 volumes:
   pgdata:
