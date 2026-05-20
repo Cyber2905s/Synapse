@@ -13,6 +13,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
+    "loadtest": "node loadtest/run.ts",
     "dev:api": "pnpm --filter @synapse/api dev",
     "dev:worker": "pnpm --filter @synapse/worker dev",
     "dev:web": "pnpm --filter @synapse/web dev"
@@ -20,8 +21,10 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@synapse/shared": "workspace:*",
+    "@types/autocannon": "^7.12.7",
     "@types/node": "^24.19.0",
     "@types/pg": "^8.23.1",
+    "autocannon": "^8.0.0",
     "eslint": "^10.11.0",
     "globals": "^17.12.0",
     "pg": "^8.23.0",

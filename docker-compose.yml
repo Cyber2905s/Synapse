@@ -7,6 +7,7 @@ x-app-env: &app-env
   SMTP_HOST: mailpit
   SMTP_PORT: '1025'
   DEMO_WEBHOOK_URL: http://api:3000/demo/webhook-sink
+  RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
   NODE_NO_WARNINGS: '1'
 
 x-app-deps: &app-deps
