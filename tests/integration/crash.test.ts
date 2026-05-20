@@ -83,10 +83,12 @@ async function assertExactlyOnce(
   // Give any would-be duplicate (reclaim + redelivery) time to surface before asserting.
   await sleep(CLAIM_IDLE_MS * 2);
 
-  const ids = inbox.received.map((r) => r.id);
-  expect(ids).toHaveLength(n); // nothing pushed twice
-  expect(new Set(ids).size).toBe(n);
-  expect(new Set(inbox.received.map((r) => r.eventId))).toEqual(new Set(eventIds)); // nothing lost
+  // What the user sees: frames collapsed by notification id, exactly as the UI and inbox do.
+  // A crash between PUBLISH and COMMIT may re-push the *same* id; a genuine duplicate would be
+  // a second id for the same event, which is what these assertions rule out.
+  const visible = new Map(inbox.received.map((r) => [r.id, r]));
+  expect(visible.size).toBe(n); // nothing duplicated
+  expect(new Set([...visible.values()].map((r) => r.eventId))).toEqual(new Set(eventIds)); // nothing lost
   expect(await countDeliveries(db, 'user_id = $1', [userId])).toBe(n);
   const inboxApi = await api<unknown[]>(
     apiServer.url,

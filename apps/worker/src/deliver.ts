@@ -82,16 +82,27 @@ export async function deliver(ctx: WorkerContext, deliveryId: string): Promise<v
 
   try {
     if (d.channel === 'in_app') {
-      // The conditional update is the exactly-once point for the inbox: only the worker that flips
-      // queued → sent publishes, so a redelivered entry can never push a second copy.
-      const { rows: sent } = await ctx.db.query(
-        `UPDATE deliveries SET status = 'sent', sent_at = now(), lease_until = NULL, updated_at = now()
-         WHERE id = $1 AND status = 'queued'
-         RETURNING id, event_id AS "eventId", user_id AS "userId", channel, status, title, body,
-           created_at AS "createdAt", sent_at AS "sentAt"`,
-        [d.id],
-      );
-      if (sent[0]) await ctx.redis.publish(KEYS.userChannel(d.user_id), JSON.stringify(sent[0]));
+      // Publish *inside* the transaction that flips queued → sent. A crash after COMMIT can then
+      // never skip the push; a crash between PUBLISH and COMMIT re-pushes the same notification id,
+      // which clients collapse (the inbox is keyed by id). The row lock also serialises racers.
+      const client = await ctx.db.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows: sent } = await client.query(
+          `UPDATE deliveries SET status = 'sent', sent_at = now(), lease_until = NULL, updated_at = now()
+           WHERE id = $1 AND status = 'queued'
+           RETURNING id, event_id AS "eventId", user_id AS "userId", channel, status, title, body,
+             created_at AS "createdAt", sent_at AS "sentAt"`,
+          [d.id],
+        );
+        if (sent[0]) await ctx.redis.publish(KEYS.userChannel(d.user_id), JSON.stringify(sent[0]));
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw err;
+      } finally {
+        client.release();
+      }
     } else {
       await (d.channel === 'email' ? sendEmail : sendWebhook)(ctx, d, prefs);
       // SMTP acceptance is "sent" (no delivery receipt); a webhook 2xx is proof of delivery.
