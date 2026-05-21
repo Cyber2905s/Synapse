@@ -58,11 +58,13 @@ export const wsRoutes: Route = (app, { db, sub }) => {
         return; // not JSON
       }
       if (!msg.success) return;
-      await db.query(
-        `UPDATE deliveries SET status = 'delivered', delivered_at = now(), updated_at = now()
-         WHERE id = $1 AND user_id = $2 AND status = 'sent'`,
-        [msg.data.id, userId],
-      );
+      await db
+        .query(
+          `UPDATE deliveries SET status = 'delivered', delivered_at = now(), updated_at = now()
+           WHERE id = $1 AND user_id = $2 AND status = 'sent'`,
+          [msg.data.id, userId],
+        )
+        .catch((err: unknown) => req.log.warn({ err }, 'ack not recorded'));
     });
 
     socket.on('close', async () => {
@@ -70,7 +72,8 @@ export const wsRoutes: Route = (app, { db, sub }) => {
       set.delete(socket);
       if (set.size === 0 && sockets.get(userId) === set) {
         sockets.delete(userId);
-        await sub.unsubscribe(KEYS.userChannel(userId));
+        // Fails harmlessly if the subscriber is already closed during shutdown.
+        await sub.unsubscribe(KEYS.userChannel(userId)).catch(() => undefined);
       }
     });
 
