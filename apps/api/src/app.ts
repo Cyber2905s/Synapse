@@ -28,7 +28,6 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { name: 'api', level: deps.config.LOG_LEVEL },
     bodyLimit: 256 * 1024,
-    disableRequestLogging: deps.config.NODE_ENV === 'production',
   });
 
   app.setErrorHandler((err, req, reply) => {
