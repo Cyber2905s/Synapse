@@ -88,7 +88,7 @@ services:
 
   web:
     build: { context: ., dockerfile: apps/web/Dockerfile }
-    ports: ['8080:80']
+    ports: ['${WEB_PORT:-8080}:80']
     depends_on:
       api: { condition: service_healthy }
 
