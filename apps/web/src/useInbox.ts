@@ -29,6 +29,11 @@ export function useInbox(userId: string, onArrive: () => void) {
         return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       });
 
+    const backfill = () =>
+      get<Notification[]>(`/v1/users/${encodeURIComponent(userId)}/notifications?limit=100`)
+        .then(merge)
+        .catch(() => undefined);
+
     const connect = () => {
       setConnection('connecting');
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -38,9 +43,7 @@ export function useInbox(userId: string, onArrive: () => void) {
         if (msg.type === 'ready') {
           retry = 0;
           setConnection('live');
-          get<Notification[]>(`/v1/users/${encodeURIComponent(userId)}/notifications?limit=100`)
-            .then(merge)
-            .catch(() => undefined);
+          backfill(); // catch up on anything pushed while we were disconnected
         } else if (msg.type === 'notification') {
           const n = msg.notification as Notification;
           ws?.send(JSON.stringify({ type: 'ack', id: n.id }));
@@ -55,6 +58,7 @@ export function useInbox(userId: string, onArrive: () => void) {
         timer = setTimeout(connect, Math.min(10_000, 500 * 2 ** retry++));
       };
     };
+    backfill();
     connect();
 
     return () => {
