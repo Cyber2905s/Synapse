@@ -310,7 +310,9 @@ function Deliveries({ userId }: { userId: string }) {
           <tbody>
             {rows.map((d) => (
               <tr key={d.id} title={d.lastError ?? undefined}>
-                <td className="clip">{d.title}</td>
+                <td>
+                  <span className="clip">{d.title}</span>
+                </td>
                 <td>{CHANNEL_NAMES[d.channel]}</td>
                 <td>
                   <span className={`status s-${d.status}`}>{d.status}</span>
