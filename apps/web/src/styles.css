@@ -559,8 +559,12 @@ button:disabled {
   .lower {
     grid-template-columns: 1fr;
   }
+  .stage {
+    gap: 16px;
+  }
+  /* The stacked layout has no gap for the signal to cross; arrivals still highlight in the inbox. */
   .spine {
-    height: 72px;
+    display: none;
   }
   .links {
     margin-left: 0;
