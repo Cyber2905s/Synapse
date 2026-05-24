@@ -1,9 +1,11 @@
 import {
   KEYS,
   backoffDelay,
-  getPreferences,
+  defaultPreferences,
   msUntilQuietEnds,
+  preferencesFromRow,
   type Channel,
+  type PreferencesRow,
 } from '@synapse/shared';
 import { sendEmail, sendWebhook } from './channels.ts';
 import type { WorkerContext } from './context.ts';
@@ -23,6 +25,7 @@ export interface DeliveryRow {
   event_type: string;
   event_data: unknown;
   received_at: Date;
+  prefs: PreferencesRow | null;
 }
 
 /** Parks a delivery in the delayed set; the promoter re-enqueues it once due. */
@@ -40,18 +43,21 @@ async function overRateLimit(ctx: WorkerContext, userId: string): Promise<number
 }
 
 /**
- * Delivery stage. Idempotent under redelivery: anything not `queued` is already settled, and the
- * lease ensures only one worker is ever mid-send for a given delivery.
+ * Delivery stage. Idempotent under redelivery: anything not `queued` is already settled. In-app is
+ * claimed by a conditional update; email/webhook take a lease so only one worker is ever mid-send.
  */
 export async function deliver(ctx: WorkerContext, deliveryId: string): Promise<void> {
   const { rows } = await ctx.db.query<DeliveryRow>(
-    `SELECT d.*, e.type AS event_type, e.data AS event_data, e.received_at
-     FROM deliveries d JOIN events e ON e.id = d.event_id WHERE d.id = $1`,
+    `SELECT d.*, e.type AS event_type, e.data AS event_data, e.received_at, row_to_json(p) AS prefs
+     FROM deliveries d
+     JOIN events e ON e.id = d.event_id
+     LEFT JOIN preferences p ON p.user_id = d.user_id
+     WHERE d.id = $1`,
     [deliveryId],
   );
   const d = rows[0];
   if (!d || d.status !== 'queued') return;
-  const prefs = await getPreferences(ctx.db, d.user_id);
+  const prefs = d.prefs ? preferencesFromRow(d.prefs) : defaultPreferences(d.user_id);
 
   // In-app is silent and pull-based, so quiet hours only hold back the interruptive channels.
   const quietMs =
@@ -63,6 +69,39 @@ export async function deliver(ctx: WorkerContext, deliveryId: string): Promise<v
     deliveries.inc({ channel: d.channel, outcome: 'deferred' });
     // Small jitter so a burst deferred to the same boundary doesn't stampede back.
     await defer(ctx, d.id, waitMs + Math.random() * 1000);
+    return;
+  }
+
+  if (d.channel === 'in_app') {
+    // No lease needed: the conditional UPDATE is the atomic claim and its row lock serialises racers.
+    // Publishing *inside* that transaction means a crash after COMMIT can never skip the push, and a
+    // crash between PUBLISH and COMMIT re-pushes the same notification id, which clients collapse.
+    // Failures here are infrastructure (Postgres/Redis down): thrown, so the stream entry stays
+    // pending for redelivery instead of burning the retry budget.
+    const client = await ctx.db.connect();
+    let claimed: boolean;
+    try {
+      await client.query('BEGIN');
+      const { rows: sent } = await client.query(
+        `UPDATE deliveries SET status = 'sent', attempts = attempts + 1, sent_at = now(), updated_at = now()
+         WHERE id = $1 AND status = 'queued'
+         RETURNING id, event_id AS "eventId", user_id AS "userId", channel, status, title, body,
+           created_at AS "createdAt", sent_at AS "sentAt"`,
+        [d.id],
+      );
+      claimed = !!sent[0];
+      if (claimed) await ctx.redis.publish(KEYS.userChannel(d.user_id), JSON.stringify(sent[0]));
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+    if (claimed) {
+      deliveries.inc({ channel: 'in_app', outcome: 'sent' });
+      deliveryLatency.observe({ channel: 'in_app' }, (Date.now() - d.received_at.getTime()) / 1000);
+    }
     return;
   }
 
@@ -81,39 +120,15 @@ export async function deliver(ctx: WorkerContext, deliveryId: string): Promise<v
   const attempt = lease.rows[0].attempts;
 
   try {
-    if (d.channel === 'in_app') {
-      // Publish *inside* the transaction that flips queued → sent. A crash after COMMIT can then
-      // never skip the push; a crash between PUBLISH and COMMIT re-pushes the same notification id,
-      // which clients collapse (the inbox is keyed by id). The row lock also serialises racers.
-      const client = await ctx.db.connect();
-      try {
-        await client.query('BEGIN');
-        const { rows: sent } = await client.query(
-          `UPDATE deliveries SET status = 'sent', sent_at = now(), lease_until = NULL, updated_at = now()
-           WHERE id = $1 AND status = 'queued'
-           RETURNING id, event_id AS "eventId", user_id AS "userId", channel, status, title, body,
-             created_at AS "createdAt", sent_at AS "sentAt"`,
-          [d.id],
-        );
-        if (sent[0]) await ctx.redis.publish(KEYS.userChannel(d.user_id), JSON.stringify(sent[0]));
-        await client.query('COMMIT');
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => undefined);
-        throw err;
-      } finally {
-        client.release();
-      }
-    } else {
-      await (d.channel === 'email' ? sendEmail : sendWebhook)(ctx, d, prefs);
-      // SMTP acceptance is "sent" (no delivery receipt); a webhook 2xx is proof of delivery.
-      const status = d.channel === 'webhook' ? 'delivered' : 'sent';
-      await ctx.db.query(
-        `UPDATE deliveries SET status = $2, sent_at = now(),
-           delivered_at = CASE WHEN $2 = 'delivered' THEN now() END, lease_until = NULL, updated_at = now()
-         WHERE id = $1`,
-        [d.id, status],
-      );
-    }
+    await (d.channel === 'email' ? sendEmail : sendWebhook)(ctx, d, prefs);
+    // SMTP acceptance is "sent" (no delivery receipt); a webhook 2xx is proof of delivery.
+    const status = d.channel === 'webhook' ? 'delivered' : 'sent';
+    await ctx.db.query(
+      `UPDATE deliveries SET status = $2, sent_at = now(),
+         delivered_at = CASE WHEN $2 = 'delivered' THEN now() END, lease_until = NULL, updated_at = now()
+       WHERE id = $1`,
+      [d.id, status],
+    );
     deliveries.inc({ channel: d.channel, outcome: d.channel === 'webhook' ? 'delivered' : 'sent' });
     deliveryLatency.observe({ channel: d.channel }, (Date.now() - d.received_at.getTime()) / 1000);
   } catch (err) {

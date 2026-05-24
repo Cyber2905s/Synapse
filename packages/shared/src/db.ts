@@ -66,7 +66,7 @@ export async function migrate(db: Db): Promise<void> {
   }
 }
 
-interface PreferencesRow {
+export interface PreferencesRow {
   user_id: string;
   channels: Record<Channel, boolean>;
   quiet_hours: Preferences['quietHours'];
@@ -75,7 +75,7 @@ interface PreferencesRow {
   webhook_secret: string | null;
 }
 
-const fromRow = (r: PreferencesRow): Preferences => ({
+export const preferencesFromRow = (r: PreferencesRow): Preferences => ({
   userId: r.user_id,
   channels: r.channels,
   quietHours: r.quiet_hours,
@@ -88,7 +88,7 @@ export async function getPreferences(db: Db, userId: string): Promise<Preference
   const { rows } = await db.query<PreferencesRow>('SELECT * FROM preferences WHERE user_id = $1', [
     userId,
   ]);
-  return rows[0] ? fromRow(rows[0]) : defaultPreferences(userId);
+  return rows[0] ? preferencesFromRow(rows[0]) : defaultPreferences(userId);
 }
 
 export async function getPreferencesMany(
@@ -99,7 +99,7 @@ export async function getPreferencesMany(
     'SELECT * FROM preferences WHERE user_id = ANY($1)',
     [userIds],
   );
-  const found = new Map(rows.map((r) => [r.user_id, fromRow(r)]));
+  const found = new Map(rows.map((r) => [r.user_id, preferencesFromRow(r)]));
   return new Map(userIds.map((id) => [id, found.get(id) ?? defaultPreferences(id)]));
 }
 
