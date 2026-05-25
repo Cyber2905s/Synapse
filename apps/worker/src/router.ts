@@ -40,37 +40,30 @@ export async function routeEvent(ctx: WorkerContext, event: StreamEvent): Promis
       .map((channel) => ({ userId, channel })),
   );
 
-  const client = await ctx.db.connect();
-  let deliveries: { id: string; status: string }[];
-  try {
-    await client.query('BEGIN');
-    await client.query(
-      `INSERT INTO events (id, type, data, occurred_at, received_at)
-       VALUES ($1, $2, $3, $4, to_timestamp($5 / 1000.0)) ON CONFLICT (id) DO NOTHING`,
-      [
-        event.id,
-        event.type,
-        data,
-        event.occurredAt ?? new Date(event.receivedAt).toISOString(),
-        event.receivedAt,
-      ],
-    );
-    // DO UPDATE (a no-op write) rather than DO NOTHING so existing rows are returned too: if a
-    // previous attempt crashed after committing but before enqueueing, we must still enqueue them.
-    ({ rows: deliveries } = await client.query(
-      `INSERT INTO deliveries (event_id, user_id, channel, title, body)
-       SELECT $1, u, c, $4, $5 FROM unnest($2::text[], $3::text[]) AS t(u, c)
-       ON CONFLICT (event_id, user_id, channel) DO UPDATE SET event_id = EXCLUDED.event_id
-       RETURNING id, status`,
-      [event.id, rows.map((r) => r.userId), rows.map((r) => r.channel), title, body],
-    ));
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  // One statement, so it is atomic without an explicit transaction (fewer round trips on the hot
+  // path). DO UPDATE (a no-op write) rather than DO NOTHING so existing rows are returned too: if a
+  // previous attempt crashed after committing but before enqueueing, they must still be enqueued.
+  const { rows: deliveries } = await ctx.db.query<{ id: string; status: string }>(
+    `WITH ev AS (
+       INSERT INTO events (id, type, data, occurred_at, received_at)
+       VALUES ($1, $2, $3, $4, to_timestamp($5 / 1000.0)) ON CONFLICT (id) DO NOTHING
+     )
+     INSERT INTO deliveries (event_id, user_id, channel, title, body)
+     SELECT $1, u, c, $8, $9 FROM unnest($6::text[], $7::text[]) AS t(u, c)
+     ON CONFLICT (event_id, user_id, channel) DO UPDATE SET event_id = EXCLUDED.event_id
+     RETURNING id, status`,
+    [
+      event.id,
+      event.type,
+      data,
+      event.occurredAt ?? new Date(event.receivedAt).toISOString(),
+      event.receivedAt,
+      rows.map((r) => r.userId),
+      rows.map((r) => r.channel),
+      title,
+      body,
+    ],
+  );
 
   // Only still-queued rows need work; a duplicate enqueue is harmless (the delivery stage is idempotent).
   await Promise.all(
