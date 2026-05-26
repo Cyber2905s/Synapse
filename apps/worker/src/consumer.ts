@@ -10,11 +10,12 @@ export interface ConsumerOptions {
   claimIdleMs: number;
   batch: number;
   log: Logger;
-  handle: (entry: StreamEntry) => Promise<void>;
+  /** Receives a whole batch so it can commit once per batch rather than once per entry. */
+  handle: (entries: StreamEntry[]) => Promise<void>;
 }
 
 /**
- * At-least-once stream consumer. An entry is XACKed only after its handler resolves, so a crash
+ * At-least-once stream consumer. A batch is XACKed only after its handler resolves, so a crash
  * anywhere before that leaves it in the group's pending list, where another consumer's XAUTOCLAIM
  * picks it up once it has been idle for `claimIdleMs`. Handlers must therefore be idempotent.
  */
@@ -23,21 +24,18 @@ export function startConsumer(o: ConsumerOptions) {
   let lastClaim = 0;
 
   const process = async (entries: StreamEntry[]) => {
-    await Promise.all(
-      entries.map(async (entry) => {
-        try {
-          // Entries trimmed/deleted while pending come back without fields: nothing to do.
-          if (Object.keys(entry.fields).length) await o.handle(entry);
-          await o.redis.xack(o.stream, o.group, entry.id);
-        } catch (err) {
-          // Not acked: it will be reclaimed and retried after claimIdleMs.
-          o.log.error(
-            { err, stream: o.stream, entryId: entry.id },
-            'handler failed; leaving pending',
-          );
-        }
-      }),
-    );
+    // Entries deleted while pending come back without fields: nothing to do but ack them.
+    const live = entries.filter((e) => Object.keys(e.fields).length);
+    try {
+      if (live.length) await o.handle(live);
+      await o.redis.xack(o.stream, o.group, ...entries.map((e) => e.id));
+    } catch (err) {
+      // Not acked: the batch is reclaimed and retried after claimIdleMs.
+      o.log.error(
+        { err, stream: o.stream, count: entries.length },
+        'batch failed; leaving pending',
+      );
+    }
   };
 
   const reclaim = async () => {
