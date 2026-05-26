@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { cpus, totalmem } from 'node:os';
+import { cpus, loadavg, totalmem } from 'node:os';
 import autocannon from 'autocannon';
 import pg from 'pg';
 
@@ -19,6 +19,7 @@ const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://synapse:synapse@localhost:5432/synapse';
 
 const run = `lt${Date.now().toString(36)}`;
+const loadAtStart = loadavg()[0]!;
 const users = Array.from({ length: USERS }, (_, i) => `${run}-u${i}`);
 
 // In-app only, so the numbers measure the pipeline rather than Mailpit's SMTP throughput.
@@ -37,6 +38,7 @@ for (let i = 0; i < users.length; i += 100) {
 
 console.log(`ingest: ${CONNECTIONS} connections for ${DURATION}s against ${TARGET}`);
 let n = 0;
+const acked: string[] = []; // exact ids the API answered 202 for; each must end up delivered
 const result = await autocannon({
   url: TARGET,
   connections: CONNECTIONS,
@@ -54,20 +56,24 @@ const result = await autocannon({
           data: { userId: users[n++ % USERS], orderId: `ORD-${n}` },
         }),
       }),
+      onResponse: (status, body) => {
+        if (status === 202) acked.push((JSON.parse(body) as { id: string }).id);
+      },
     },
   ],
 });
 const ingestEnded = Date.now();
-const accepted = result['2xx'];
-if (!accepted) throw new Error(`no events accepted (non-2xx: ${result.non2xx}, errors: ${result.errors})`);
+const accepted = acked.length;
+if (!accepted)
+  throw new Error(`no events accepted (non-2xx: ${result.non2xx}, errors: ${result.errors})`);
 
 const db = new pg.Pool({ connectionString: DATABASE_URL });
 const progress = async () =>
   (
     await db.query<{ done: number }>(
-      `SELECT count(*)::int AS done FROM deliveries
-       WHERE user_id LIKE $1 AND status IN ('sent', 'delivered')`,
-      [`${run}-%`],
+      `SELECT count(DISTINCT event_id)::int AS done FROM deliveries
+       WHERE event_id = ANY($1) AND channel = 'in_app' AND status IN ('sent', 'delivered')`,
+      [acked],
     )
   ).rows[0]!.done;
 
@@ -98,9 +104,15 @@ const { rows } = await db.query<{
    FROM (
      SELECT extract(epoch FROM d.sent_at - e.received_at) * 1000 AS lat, e.received_at AS first, d.sent_at AS last
      FROM deliveries d JOIN events e ON e.id = d.event_id
-     WHERE d.user_id LIKE $1 AND d.sent_at IS NOT NULL
+     WHERE d.event_id = ANY($1) AND d.sent_at IS NOT NULL
    ) t`,
-  [`${run}-%`],
+  [acked],
+);
+const { rows: dupes } = await db.query<{ n: number }>(
+  `SELECT count(*)::int AS n FROM (
+     SELECT event_id FROM deliveries WHERE event_id = ANY($1) AND channel = 'in_app'
+     GROUP BY event_id HAVING count(*) > 1) t`,
+  [acked],
 );
 await db.end();
 const e2e = rows[0]!;
@@ -132,6 +144,7 @@ const report = {
   pipeline: {
     delivered: done,
     lost: accepted - done,
+    duplicated: dupes[0]!.n,
     drainAfterIngestMs: drainMs,
     throughputPerSec: Math.round(done / e2eSeconds),
     e2eLatencyMs: {
