@@ -59,6 +59,7 @@ const result = await autocannon({
 });
 const ingestEnded = Date.now();
 const accepted = result['2xx'];
+if (!accepted) throw new Error(`no events accepted (non-2xx: ${result.non2xx}, errors: ${result.errors})`);
 
 const db = new pg.Pool({ connectionString: DATABASE_URL });
 const progress = async () =>
