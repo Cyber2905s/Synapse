@@ -11,8 +11,8 @@ import {
 } from '@synapse/shared';
 import { startConsumer } from './consumer.ts';
 import type { WorkerContext } from './context.ts';
-import { deliver } from './deliver.ts';
-import { routeEvent } from './router.ts';
+import { deliverBatch } from './deliver.ts';
+import { routeEvents } from './router.ts';
 
 /** Atomically moves due delivery ids from the delayed set back onto the deliveries stream. */
 const PROMOTE = `
@@ -52,14 +52,22 @@ export async function startWorker({ config, db, redis, log, name }: WorkerDeps) 
       redis: blocking[0],
       stream: KEYS.events,
       group: GROUPS.router,
-      handle: (e) => routeEvent(ctx, JSON.parse(e.fields.payload!) as StreamEvent),
+      handle: (batch) =>
+        routeEvents(
+          ctx,
+          batch.map((e) => JSON.parse(e.fields.payload!) as StreamEvent),
+        ),
     }),
     startConsumer({
       ...common,
       redis: blocking[1],
       stream: KEYS.deliveries,
       group: GROUPS.delivery,
-      handle: (e) => deliver(ctx, e.fields.deliveryId!),
+      handle: (batch) =>
+        deliverBatch(
+          ctx,
+          batch.map((e) => e.fields.deliveryId!),
+        ),
     }),
   ];
 
