@@ -4,6 +4,7 @@
  *
  *   node loadtest/run.ts                      # defaults below
  *   TARGET=http://localhost:3000 DURATION=30 CONNECTIONS=200 node loadtest/run.ts
+ *   RATE=1000 node loadtest/run.ts            # steady load instead of saturation
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -16,6 +17,8 @@ const TARGET = process.env.TARGET ?? 'http://localhost:3000';
 const DURATION = Number(process.env.DURATION ?? 20);
 const CONNECTIONS = Number(process.env.CONNECTIONS ?? 100);
 const USERS = Number(process.env.USERS ?? 2000);
+/** Optional cap on total requests/sec; unset = as fast as possible (saturation). */
+const RATE = process.env.RATE ? Number(process.env.RATE) : undefined;
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://synapse:synapse@localhost:5432/synapse';
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -45,6 +48,7 @@ const result = await autocannon({
   url: TARGET,
   connections: CONNECTIONS,
   duration: DURATION,
+  ...(RATE ? { overallRate: RATE } : {}),
   requests: [
     {
       method: 'POST',
@@ -139,7 +143,13 @@ const report = {
     memGb: Math.round(totalmem() / 2 ** 30),
     loadAvg1mAtStart: Number(loadAtStart.toFixed(1)),
   },
-  config: { target: TARGET, durationSec: DURATION, connections: CONNECTIONS, users: USERS },
+  config: {
+    target: TARGET,
+    durationSec: DURATION,
+    connections: CONNECTIONS,
+    users: USERS,
+    rateCap: RATE ?? null,
+  },
   ingest: {
     requests: result.requests.total,
     accepted,
