@@ -1,4 +1,4 @@
-import { toEntries, type Logger, type Redis, type StreamEntry } from '@synapse/shared';
+import { ensureGroup, toEntries, type Logger, type Redis, type StreamEntry } from '@synapse/shared';
 
 export interface ConsumerOptions {
   /** Dedicated connection: XREADGROUP BLOCK ties it up. */
@@ -80,6 +80,13 @@ export function startConsumer(o: ConsumerOptions) {
         if (res?.[0]) await process(toEntries(res[0][1]));
       } catch (err) {
         if (!running) break;
+        // The stream or group vanished (Redis flushed/restored): recreate from '0' so entries that
+        // producers appended since are consumed rather than skipped.
+        if (String(err).includes('NOGROUP')) {
+          o.log.warn({ stream: o.stream, group: o.group }, 'consumer group missing; recreating');
+          await ensureGroup(o.redis, o.stream, o.group).catch(() => undefined);
+          continue;
+        }
         o.log.error({ err, stream: o.stream }, 'consumer loop error; backing off');
         await new Promise((r) => setTimeout(r, 1000));
       }

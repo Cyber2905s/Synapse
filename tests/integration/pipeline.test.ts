@@ -245,3 +245,15 @@ describe('webhooks, retries and the DLQ', () => {
     ).toBe(0);
   });
 });
+
+describe('resilience', () => {
+  it('recreates consumer groups when Redis loses the streams', async () => {
+    await redis.del(KEYS.events, KEYS.deliveries); // e.g. Redis restored without these keys
+    const user = uid('flushed');
+    const event = orderDelivered(user);
+    expect((await api(apiA.url, '/v1/events', event)).status).toBe(202);
+    await waitFor(async () => (await statusOf(event.id, 'in_app'))?.status === 'sent', {
+      message: 'delivery after group recreation',
+    });
+  });
+});
