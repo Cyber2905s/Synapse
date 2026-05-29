@@ -78,7 +78,9 @@ const db = new pg.Pool({ connectionString: DATABASE_URL });
 // the delayed set. Polled from Redis so the measurement doesn't load Postgres.
 const redis = createRedis(REDIS_URL);
 const groupBacklog = async (stream: string, group: string) => {
-  const groups = (await redis.xinfo('GROUPS', stream)) as (string | number | null)[][];
+  const groups = (await redis.xinfo('GROUPS', stream).catch(() => [])) as (
+    string | number | null
+  )[][];
   for (const flat of groups) {
     const g = new Map<unknown, unknown>();
     for (let i = 0; i < flat.length; i += 2) g.set(flat[i], flat[i + 1]);
