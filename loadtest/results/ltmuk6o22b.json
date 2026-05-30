@@ -1,0 +1,44 @@
+{
+  "run": "ltmuk6o22b",
+  "at": "2026-09-27T19:00:25.451Z",
+  "machine": {
+    "cpus": 16,
+    "cpuModel": "AMD Ryzen 7 7730U with Radeon Graphics",
+    "memGb": 15,
+    "loadAvg1mAtStart": 3.4
+  },
+  "config": {
+    "target": "http://localhost:8088",
+    "durationSec": 20,
+    "connections": 50,
+    "users": 2000,
+    "rateCap": 1000
+  },
+  "ingest": {
+    "requests": 20018,
+    "accepted": 20018,
+    "non2xx": 0,
+    "errors": 0,
+    "timeouts": 0,
+    "rpsAvg": 1000.9,
+    "latencyMs": {
+      "p50": 4,
+      "p90": 10,
+      "p99": 20,
+      "max": 52
+    }
+  },
+  "pipeline": {
+    "delivered": 20018,
+    "lost": 0,
+    "duplicated": 0,
+    "drainAfterIngestMs": 14,
+    "throughputPerSec": 997,
+    "e2eLatencyMs": {
+      "p50": 48,
+      "p95": 75,
+      "p99": 86,
+      "max": 96
+    }
+  }
+}
