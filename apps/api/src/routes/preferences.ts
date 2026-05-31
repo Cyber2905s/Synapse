@@ -12,7 +12,7 @@ export const userParams = z.object({ userId: z.string().min(1).max(128) });
 
 const redact = (p: Preferences) => ({ ...p, webhookSecret: p.webhookSecret ? '********' : null });
 
-// ponytail: no authn/authz — any caller can act as any user. Put a JWT check on /v1/users/:userId
+// Known limit: no authn/authz — any caller can act as any user. Put a JWT check on /v1/users/:userId
 // (and the WebSocket) before exposing this beyond a trusted network.
 export const preferenceRoutes: Route = (app, { db }) => {
   app.get('/v1/users/:userId/preferences', async (req) => {

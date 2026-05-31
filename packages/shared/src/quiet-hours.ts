@@ -22,7 +22,7 @@ const toMinutes = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 
 /**
  * Milliseconds until the user's quiet window ends, or 0 if `now` is outside it.
  * Windows may wrap midnight (22:00 → 07:00).
- * ponytail: minute granularity and DST transitions inside a window are ignored (off by up to 1h
+ * Known limit: minute granularity and DST transitions inside a window are ignored (off by up to 1h
  * on those two nights); compute with a tz library if that ever matters.
  */
 export function msUntilQuietEnds(qh: QuietHours, now: Date): number {

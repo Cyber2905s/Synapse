@@ -41,7 +41,7 @@ export const toEntries = (raw: [string, string[] | null][]): StreamEntry[] =>
     return { id, fields };
   });
 
-// ponytail: streams are never trimmed; add a periodic `XTRIM MINID` below the oldest pending id
+// Known limit: streams are never trimmed; add a periodic `XTRIM MINID` below the oldest pending id
 // once retention matters (MAXLEN trimming could drop unacked entries).
 export const enqueueDelivery = (redis: Redis, deliveryId: string) =>
   redis.xadd(KEYS.deliveries, '*', 'deliveryId', deliveryId);
